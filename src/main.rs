@@ -1,5 +1,11 @@
 use std::collections::HashMap;
+use std::io::Read;
 
+use serde::{Deserialize, Serialize};
+use serde_yaml::Value;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 enum OneOrMany<T> {
     One(T),
     Many(Vec<T>),
@@ -14,29 +20,57 @@ impl<T> OneOrMany<T> {
     }
 }
 
-/// An event trigger for a workflow.
-enum Event {
-    // TODO: enumerate all events
-    Push,
-    PullRequest,
-}
-
 /// You can schedule a workflow to run at specific UTC times using POSIX cron
 /// syntax. Scheduled workflows run on the latest commit on the default or base
 /// branch. The shortest interval you can run scheduled workflows is once every 5
 /// minutes.
 type Schedule = Vec<CronSchedule>;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct CronSchedule {
     // TODO: validate cron string
     cron: String,
 }
 
 /// Trigger types for a workflow.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 enum Trigger {
-    Events(OneOrMany<Event>),
+    Push(Value),
+    PullRequest(Value),
+    WorkflowDispatch(Value),
+    RepositoryDispatch(Value),
+    CheckRun(Value),
+    CheckSuite(Value),
+    Create(Value),
+    Delete(Value),
+    Deployment(Value),
+    DeploymentStatus(Value),
+    Fork(Value),
+    Gollum(Value),
+    IssueComment(Value),
+    Issues(Value),
+    Label(Value),
+    Milestone(Value),
+    PageBuild(Value),
+    Project(Value),
+    ProjectCard(Value),
+    ProjectColumn(Value),
+    Public(Value),
+    PullRequestReview(Value),
+    PullRequestReviewComment(Value),
+    PullRequestTarget(Value),
+    RegistryPackage(Value),
+    Release(Value),
+    Status(Value),
+    Watch(Value),
+    WorkflowRun(Value),
     Schedule(Schedule),
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct DefaultSettings {
     shell: Option<String>,
     working_directory: Option<String>,
@@ -44,21 +78,26 @@ struct DefaultSettings {
 
 /// Provide default shell and working-directory to all run steps in the job.
 /// Context and expression are not allowed in this section.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct Defaults {
     run: DefaultSettings,
 }
 
 /// The environment that the job references. All environment protection rules
 /// must pass before a job referencing the environment is sent to a runner.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct Environment {
     name: String,
     url: Option<String>,
 }
 
 // TODO
-struct Matrix {}
+type Matrix = Value;
 
-// TODO
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct Strategy {
     matrix: Option<Matrix>,
     fail_fast: Option<bool>,
@@ -71,31 +110,67 @@ struct Strategy {
 /// Not all steps run actions, but all actions run as a step. Each step runs in its
 /// own process in the runner environment and has access to the workspace and
 /// filesystem.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct Step {}
 
-// TODO
 /// A container to run any steps in a job that don't already specify a container.
-struct Container {}
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default)]
+struct ContainerSpec {
+    name: String,
+    credentials: Option<HashMap<String, String>>,
+    env: Option<Env>,
+    ports: Vec<i32>,
+    volumes: Vec<i32>,
+    options: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum Container {
+    ImageName(String),
+    DetailedSpec(ContainerSpec),
+}
+
+impl Container {
+    fn spec(self) -> ContainerSpec {
+        match self {
+            Container::ImageName(n) => ContainerSpec {
+                name: n,
+                ..Default::default()
+            },
+            Container::DetailedSpec(s) => s,
+        }
+    }
+}
 
 // TODO
 /// Used to host service containers for a job in a workflow. Service containers
 /// are useful for creating databases or cache services like Redis.
-struct Service {}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct Service {
+    name: String,
+    ports: Vec<String>,
+}
 
-// TODO
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct Job {
     /// The name of the job displayed on GitHub.
-    name: String,
+    name: Option<String>,
 
     /// Identifies any jobs that must complete successfully before this job
     /// will run. It can be a string or array of strings. If a job fails, all jobs that
     /// need it are skipped unless the jobs use a conditional expression that causes
     /// the job to continue.
-    needs: Option<Vec<String>>,
+    #[serde(default)]
+    needs: Vec<String>,
 
     /// The type of machine to run the job on. The machine can be either a GitHub-hosted
     /// runner or a self-hosted runner.
-    runs_on: OneOrMany<String>,
+    runs_on: String,
 
     /// The environment that the job references. All environment protection rules must
     /// pass before a job referencing the environment is sent to a runner.
@@ -115,11 +190,13 @@ struct Job {
 
     /// You can use the if conditional to prevent a job from running unless a condition
     /// is met. You can use any supported context and expression to create a conditional.
+    #[serde(rename = "if")]
     run_if: Option<String>,
 
     /// A job contains a sequence of tasks called steps. Because steps run in
     /// their own process, changes to environment variables are not preserved
     /// between steps. GitHub provides built-in steps to set up and complete a job.
+    #[serde(default)]
     steps: Vec<Step>,
 
     /// The maximum number of minutes to run the step before killing the process.
@@ -137,16 +214,21 @@ struct Job {
     /// actions will run as sibling containers on the same network with the same volume mounts.
     container: Option<Container>,
 
-    /// The runner automatically creates a Docker network and manages the life cycle of the service containers.
-    services: Option<Vec<Service>>,
+    /// The runner automatically creates a Docker network and manages the life
+    /// cycle of the service containers.
+    #[serde(default)]
+    services: Vec<Service>,
 }
 
 type Env = HashMap<String, String>;
+
 type JobMap = HashMap<String, Job>;
 
 // TODO: determine if outputs _need_ to be an expression and validate
 type Output = String;
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct Workflow {
     /// The name of your workflow. GitHub displays the names of your workflows on your
     /// repository's actions page. If you omit name, GitHub sets it to the workflow
@@ -175,5 +257,10 @@ struct Workflow {
 }
 
 fn main() {
-    println!("Imagine having two write this in marshmallow.py");
+    println!("Imagine having two write this with marshmallow.py");
+    let mut file = std::fs::File::open("./test_input/example_issue.yaml").unwrap();
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).unwrap();
+    let workflow: Workflow = serde_yaml::from_str(&contents).unwrap();
+    print!("{:?}", workflow);
 }
